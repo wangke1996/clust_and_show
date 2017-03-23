@@ -1,5 +1,6 @@
 package clust_and_show;
 
+import java.awt.BorderLayout;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileReader;
@@ -10,23 +11,33 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Vector;
+
+import javax.swing.JFrame;
+import javax.swing.JScrollPane;
+import javax.swing.JTextPane;
+import javax.swing.JTree;
+import javax.swing.tree.DefaultMutableTreeNode;
+
 import java.util.Map.Entry;
 
 
 
 public class Run {
 	//protected static String[] all_features={"look", "screen", "price", "camera", "time", "speed", "battery", "version", "quality", "performance", "storage", "user", "feature", "purchase", "design", "value", "part", "size"};
+	//protected static String folder="E:/Tsinghua/±œ…Ë/project1/remote_service";
+	protected static String folder=".";
 	protected static List<String> all_features=new ArrayList<String>();
-	protected static int feature_num=53;
-	
+	protected static int feature_num=53;	
 	protected static int dim=54;
 	protected static Integer cid=0;
-	protected static double th=0.9;
+	protected static double th=0.68;
 	protected static double cover=0.5;
 	protected static double[][] context=new double[feature_num][dim];
 	protected static HashMap<Integer,String> clust_labels=new HashMap<Integer,String>();
 	protected static List<HashSet<String>> clusters=new ArrayList<HashSet<String>>();
 	protected static HashMap<Integer,HashSet<String>> cid_feature=new HashMap<Integer,HashSet<String>>();
+	
+	protected static DefaultMutableTreeNode ROOT=new DefaultMutableTreeNode("phone");
 	public static void main(String[] args){
 //		//String method="direct";//"graph";"agglo";"rbr";"bagglo";"br";
 //		//Integer clust_num=3;
@@ -118,10 +129,20 @@ public class Run {
 		if(args.length>1)
 			dim=Integer.parseInt(args[1]);
 		bisection();
+        JFrame f = new JFrame("JTreeDemo");
+        JTree T=new JTree(ROOT);
+        //f.add(T);
+        JScrollPane scrollPane_2 = new JScrollPane();
+        f.getContentPane().add(scrollPane_2, BorderLayout.CENTER);
+        f.setSize(900, 900);
+        scrollPane_2.setViewportView(T);
+        f.setVisible(true);
+
+        f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     }
 	public static void bisection(){
 		try{
-			FileReader fr=new FileReader("context_vecs.txt");
+			FileReader fr=new FileReader(folder+"/context_vecs.txt");
 			BufferedReader br=new BufferedReader(fr);
 			br.readLine();
 			String s;
@@ -139,7 +160,7 @@ public class Run {
 			e.printStackTrace();
 		}
 		read_features();
-		bis_split(all_features);
+		bis_split(all_features,ROOT);
 		get_hypernym();
 		String result="";
 		Iterator<Entry<Integer,HashSet<String>>> iter=cid_feature.entrySet().iterator();
@@ -152,7 +173,7 @@ public class Run {
 			result+='\n';
 		}
 		try{
-			FileWriter fw=new FileWriter("result_direct_cos_bisc.txt");
+			FileWriter fw=new FileWriter(folder+"/result_direct_cos_bisc.txt");
 			BufferedWriter bw=new BufferedWriter(fw);
 			bw.write(result);
 			bw.close();
@@ -162,17 +183,20 @@ public class Run {
 			e.printStackTrace();
 		}
 	}
-	public static void bis_split(List<String> features){
-		if(compute_ISim(features)>=th||features.size()<2)
+	public static void bis_split(List<String> features,DefaultMutableTreeNode root){
+		if(compute_ISim(features)>=th||features.size()<2){
+			for(String f:features)
+				root.add(new DefaultMutableTreeNode(f));
 			return;
+		}
 		write_input_matrix(features);
-		String command="vcluster.exe -clmethod=direct -sim=cos -rowmodel=maxtf Input_Matrix_"+cid.toString()+".txt 2";
+		String command=folder+"/vcluster.exe -clmethod=direct -sim=cos -rowmodel=maxtf "+folder+"/Input_Matrix_"+cid.toString()+".txt 2";
 		CommandUtil util = new CommandUtil();
         util.executeCommand(command);
         printList(util.getStdoutList());
         System.out.println("--------------------");
         printList(util.getErroroutList());
-        String outfile="Input_Matrix_"+cid.toString()+".txt.clustering.2";
+        String outfile=folder+"/Input_Matrix_"+cid.toString()+".txt.clustering.2";
         HashSet<String> hs1=new HashSet<String>();
         HashSet<String> hs2=new HashSet<String>();
         cid_feature.put(cid, hs1);
@@ -198,6 +222,10 @@ public class Run {
         catch(Exception e){
         	e.printStackTrace();
         }
+        DefaultMutableTreeNode node1=new DefaultMutableTreeNode(hypernym(cid_feature.get(cid)));
+        DefaultMutableTreeNode node2=new DefaultMutableTreeNode(hypernym(cid_feature.get(cid+1)));
+        root.add(node1);
+        root.add(node2);
         List<String> features1=new ArrayList<String>();//[cid_feature.get(cid).size()];
         List<String> features2=new ArrayList<String>();//String[cid_feature.get(cid+1).size()];
         Iterator<String> it=cid_feature.get(cid).iterator();
@@ -209,8 +237,8 @@ public class Run {
         	features2.add(it.next());
         }
         cid+=2;
-        bis_split(features1);
-        bis_split(features2);
+        bis_split(features1,node1);
+        bis_split(features2,node2);
 	}
 	public static int get_id(String f){
 		for(int m=0;m<all_features.size();m++){
@@ -221,7 +249,7 @@ public class Run {
 	}
 	public static void write_input_matrix(List<String> features){
 		try{
-			FileWriter fw=new FileWriter("Input_Matrix_"+cid.toString()+".txt");
+			FileWriter fw=new FileWriter(folder+"/Input_Matrix_"+cid.toString()+".txt");
 			BufferedWriter bufw=new BufferedWriter(fw);
 			bufw.write(features.size()+" "+dim+'\n');		
 			for(int k=0;k<features.size();k++){
@@ -304,13 +332,20 @@ public class Run {
 				s=s+all_features.get(k-1)+" ";
 			}
 		}
+		/*s=s+"="+String.valueOf(max_value-1)+" ";
+		for(int k=1;k<dim;k++){
+			if(overlap_vec[k]>0){
+				s=s+all_features.get(k-1)+"="+String.valueOf(overlap_vec[k]-1)+" ";
+			}
+		}*/
+		
 		return s;
 	}
 	
 	
  	public static void read_features(){
 		try{
-			FileReader fr=new FileReader("Row_labels.txt");
+			FileReader fr=new FileReader(folder+"/Row_labels.txt");
 			BufferedReader bufr=new BufferedReader(fr);
 			String s;
 			while((s=bufr.readLine())!=null)
