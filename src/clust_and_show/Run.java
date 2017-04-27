@@ -38,14 +38,15 @@ public class Run {
 	//protected static String[] all_features={"look", "screen", "price", "camera", "time", "speed", "battery", "version", "quality", "performance", "storage", "user", "feature", "purchase", "design", "value", "part", "size"};
 	protected static String folder="E:/Tsinghua/±œ…Ë/project1/remote_service/";
 	//protected static String folder="./";
+	protected static String product_name="";
 	protected static List<String> all_features=new ArrayList<String>();
 	protected static HashMap<String,Feature> FEATURE=new HashMap<String,Feature>();
-	protected static int feature_num=53;	
-	protected static int dim=54;
+	protected static int feature_num;	
+	protected static int dim;
 	protected static Integer cid=0;
-	protected static double th=0.68;
+	protected static double th=0.72;
 	protected static double cover=0.5;
-	protected static double[][] context=new double[feature_num][dim];
+	protected static double[][] context;
 	protected static HashMap<Integer,String> clust_labels=new HashMap<Integer,String>();
 	protected static List<HashSet<String>> clusters=new ArrayList<HashSet<String>>();
 	protected static HashMap<Integer,HashSet<String>> cid_feature=new HashMap<Integer,HashSet<String>>();
@@ -54,6 +55,7 @@ public class Run {
 	protected static HashMap<String,Double> InSim=new HashMap<String,Double>();
 	protected static HashMap<String,Double> ExSim=new HashMap<String,Double>();
 	protected static DefaultMutableTreeNode tree_prun(DefaultMutableTreeNode root){
+		//----the clust with only one child should be replaced by its child----//
 		if(root.isLeaf())
 			return root;
 		boolean flag_change=false;
@@ -62,22 +64,30 @@ public class Run {
 			if(root.getChildCount()==1){
 				root=(DefaultMutableTreeNode) root.getChildAt(0);
 				flag_change=true;
+				continue;
 			}
+			HashSet<DefaultMutableTreeNode> nodes=new HashSet<DefaultMutableTreeNode>();
 			for(int k=0;k<root.getChildCount();k++){
 				DefaultMutableTreeNode child_node=(DefaultMutableTreeNode) root.getChildAt(k);
-				root.remove(k);
-				root.add(tree_prun(child_node));
+				nodes.add(tree_prun(child_node));
 			}
+			root.removeAllChildren();
+			Iterator<DefaultMutableTreeNode> iter=nodes.iterator();
+			while(iter.hasNext())
+				root.add(iter.next());
 		}
 		while(flag_change);
 		return root;
 	}
 	protected static DefaultMutableTreeNode whole_prun(DefaultMutableTreeNode root){
+		//----the clust with no direct leaf nodes should be replaced by its children----//
 		HashSet<TreeNode> nodes=new HashSet<TreeNode>();
 		Enumeration<TreeNode> enu=root.postorderEnumeration();
 		while(enu.hasMoreElements()){
 			TreeNode t=enu.nextElement();
 			if(t.isLeaf())
+				continue;
+			if(t.toString().equals(root.toString()))
 				continue;
 			if(has_leaf_child(t))
 			{
@@ -109,7 +119,63 @@ public class Run {
 		}
 		return false;
 	}
-	protected static DefaultMutableTreeNode ROOT=new DefaultMutableTreeNode("phone");
+	protected static DefaultMutableTreeNode move_label_from_leaf(DefaultMutableTreeNode root){
+		HashSet<String> label_words=new HashSet<String>();
+		Enumeration<TreeNode> enu=root.postorderEnumeration();
+		while(enu.hasMoreElements()){
+			TreeNode t=enu.nextElement();
+			if(t.isLeaf())
+				continue;
+			label_words.add(t.toString());
+			System.out.println(t.toString());
+		}
+		root=move_label_from_leaf(root,label_words);
+		return root;
+				
+	}
+	protected static DefaultMutableTreeNode move_label_from_leaf(DefaultMutableTreeNode root,HashSet<String> label_words){
+		//----delete those leaves which are label words----//
+		if(root.isLeaf())
+			return root;
+		HashSet<DefaultMutableTreeNode> nodes=new HashSet<DefaultMutableTreeNode>();
+		for(int k=0;k<root.getChildCount();k++){
+			
+			DefaultMutableTreeNode child_node=(DefaultMutableTreeNode) root.getChildAt(k);
+			if(child_node.isLeaf()&&label_words.contains(child_node.toString()))
+				continue;
+			nodes.add(move_label_from_leaf(child_node,label_words));
+		}
+		root.removeAllChildren();
+		Iterator<DefaultMutableTreeNode> iter=nodes.iterator();
+		while(iter.hasNext())
+			root.add((MutableTreeNode) iter.next());
+		return root;
+	}
+	protected static DefaultMutableTreeNode leaf_prun(DefaultMutableTreeNode root){
+		//----the leaf having no slave-master relationship with its brother or parent should be removed----//
+		if(root.isLeaf())
+			return root;
+		String hyper=root.toString();
+		HashSet<String> features=new HashSet<String>();
+		Enumeration<TreeNode> tnodes=root.preorderEnumeration();
+		while(tnodes.hasMoreElements())
+			features.add(tnodes.nextElement().toString());
+		features.remove(hyper);
+		prun_clust(features,hyper);
+		HashSet<DefaultMutableTreeNode> nodes=new HashSet<DefaultMutableTreeNode>();
+		for(int k=0;k<root.getChildCount();k++){
+			DefaultMutableTreeNode child_node=(DefaultMutableTreeNode) root.getChildAt(k);
+			if(child_node.isLeaf()&&(!features.contains(child_node.toString())))
+				continue;
+			nodes.add(leaf_prun(child_node));
+		}
+		root.removeAllChildren();
+		Iterator<DefaultMutableTreeNode> iter=nodes.iterator();
+		while(iter.hasNext())
+			root.add((MutableTreeNode) iter.next());
+		return root;
+	}
+	protected static DefaultMutableTreeNode ROOT;
 	public static void main(String[] args){
 //		//String method="direct";//"graph";"agglo";"rbr";"bagglo";"br";
 //		//Integer clust_num=3;
@@ -196,13 +262,13 @@ public class Run {
 //        catch(Exception e){
 //        	e.printStackTrace();
 //        }
-		if(args.length>0)
-			th=Double.parseDouble(args[0]);
-		if(args.length>1)
-			dim=Integer.parseInt(args[1]);
-		bisection();
+		String inpath=folder+"smartphone/processdata/";
+		bisection(inpath);
 		ROOT=tree_prun(ROOT);
 		ROOT=whole_prun(ROOT);
+		ROOT=move_label_from_leaf(ROOT);
+		ROOT=whole_prun(ROOT);
+		ROOT=leaf_prun(ROOT);
         JFrame f = new JFrame("JTreeDemo");
         JTree T=new JTree(ROOT);
         f.add(T);
@@ -214,12 +280,15 @@ public class Run {
 
         f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
     }
-	public static void bisection(){
+	public static void bisection(String inpath){
 		try{
-			FileReader fr=new FileReader(folder+"context_vecs.txt");
+			FileReader fr=new FileReader(inpath+"context_vecs.txt");
 			BufferedReader br=new BufferedReader(fr);
-			br.readLine();
 			String s;
+			s=br.readLine();
+			feature_num=Integer.parseInt(s.split(" ")[0]);
+			dim=feature_num+1;
+			context=new double[feature_num][dim];
 			int n=0;
 			while((s=br.readLine())!=null){
 				String[] ss=s.split(" ");
@@ -233,8 +302,10 @@ public class Run {
 		catch(Exception e){
 			e.printStackTrace();
 		}
-		read_features();
-		bis_split(all_features,ROOT,"phone");
+		read_features(inpath);
+		get_product_name(inpath);
+		ROOT=new DefaultMutableTreeNode(product_name);
+		bis_split(inpath,all_features,ROOT,product_name);
 		get_hypernym();
 		String result="";
 		Iterator<Entry<Integer,HashSet<String>>> iter=cid_feature.entrySet().iterator();
@@ -247,7 +318,7 @@ public class Run {
 			result+='\n';
 		}
 		try{
-			FileWriter fw=new FileWriter(folder+"result_direct_cos_bisc.txt");
+			FileWriter fw=new FileWriter(inpath+"result_direct_cos_bisc.txt");
 			BufferedWriter bw=new BufferedWriter(fw);
 			bw.write(result);
 			bw.close();
@@ -257,7 +328,7 @@ public class Run {
 			e.printStackTrace();
 		}
 	}
-	public static void bis_split(List<String> features,DefaultMutableTreeNode root,String hyper){
+	public static void bis_split(String inpath,List<String> features,DefaultMutableTreeNode root,String hyper){
 		if(compute_ISim(features)>=th||features.size()<2){
 			HashSet<String> feature_set=new HashSet<String>(features);
 			prun_clust(feature_set ,hyper);
@@ -271,14 +342,14 @@ public class Run {
 				root.add(new DefaultMutableTreeNode(f));
 			return;
 		}
-		write_input_matrix(features);
-		String command=folder+"vcluster.exe -clmethod=direct -sim=cos -rowmodel=maxtf "+folder+"Input_Matrix_"+cid.toString()+".txt 2";
+		write_input_matrix(inpath,features);
+		String command=folder+"vcluster.exe -clmethod=direct -sim=cos -rowmodel=maxtf "+inpath+"Input_Matrix_"+cid.toString()+".txt 2";
 		CommandUtil util = new CommandUtil();
         util.executeCommand(command);
         printList(util.getStdoutList());
         System.out.println("--------------------");
         printList(util.getErroroutList());
-        String outfile=folder+"Input_Matrix_"+cid.toString()+".txt.clustering.2";
+        String outfile=inpath+"Input_Matrix_"+cid.toString()+".txt.clustering.2";
         HashSet<String> hs1=new HashSet<String>();
         HashSet<String> hs2=new HashSet<String>();
         cid_feature.put(cid, hs1);
@@ -318,8 +389,8 @@ public class Run {
         List<String> features2=new ArrayList<String>(cid_feature.get(cid+1));//String[cid_feature.get(cid+1).size()];
      
         cid+=2;
-        bis_split(features1,node1,hyper1);
-        bis_split(features2,node2,hyper2);
+        bis_split(inpath,features1,node1,hyper1);
+        bis_split(inpath,features2,node2,hyper2);
 	}
 	public static int get_id(String f){
 		for(int m=0;m<all_features.size();m++){
@@ -328,9 +399,9 @@ public class Run {
 		}
 		return -1;
 	}
-	public static void write_input_matrix(List<String> features){
+	public static void write_input_matrix(String inpath,List<String> features){
 		try{
-			FileWriter fw=new FileWriter(folder+"Input_Matrix_"+cid.toString()+".txt");
+			FileWriter fw=new FileWriter(inpath+"Input_Matrix_"+cid.toString()+".txt");
 			BufferedWriter bufw=new BufferedWriter(fw);
 			bufw.write(features.size()+" "+dim+'\n');		
 			for(int k=0;k<features.size();k++){
@@ -407,9 +478,9 @@ public class Run {
 				//return (o1.getKey()).toString().compareTo(o2.getKey());
 			}
 		}); 
-		if(masters.isEmpty())
+		if(masters.size()<2)
 			return hypernym_overlap(features);
-		if(masters.get(0).getKey().equals("phone"))
+		if(masters.get(0).getKey().equals(product_name))
 			return masters.get(1).getKey();
 		return masters.get(0).getKey();
 	}
@@ -613,9 +684,9 @@ public class Run {
 		return S;
 	}
 	
- 	public static void read_features(){
+ 	public static void read_features(String inpath){
 		try{
-			FileReader fr=new FileReader(folder+"Row_labels.txt");
+			FileReader fr=new FileReader(inpath+"Row_labels.txt");
 			BufferedReader bufr=new BufferedReader(fr);
 			String s;
 			while((s=bufr.readLine())!=null)
@@ -628,7 +699,7 @@ public class Run {
 		}
 		
 		try{
-			File file=new File(folder+"ALL_FEATURE.dat");
+			File file=new File(inpath+"ALL_FEATURE.dat");
 			FileInputStream fi=new FileInputStream(file);
 			ObjectInputStream oi=new ObjectInputStream(fi);
 			try{
@@ -647,7 +718,27 @@ public class Run {
 		}
 		
 	}
-    public static void printList(List<String> list){
+    public static void get_product_name(String inpath){
+    	try{
+			File file=new File(inpath+"ALL_FEATURE.dat");
+			FileInputStream fi=new FileInputStream(file);
+			ObjectInputStream oi=new ObjectInputStream(fi);
+			try{
+				Feature f=(Feature) oi.readObject();
+				product_name=f.feature;
+				oi.close();
+				fi.close();
+			}
+			catch(Exception e){
+				oi.close();
+				fi.close();
+			}
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
+    }
+ 	public static void printList(List<String> list){
         for (String string : list) {
             System.out.println(string);
         }
