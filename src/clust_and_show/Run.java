@@ -44,9 +44,11 @@ public class Run {
 	protected static int feature_num;	
 	protected static int dim;
 	protected static Integer cid=0;
-	protected static double th=0.72;
+	protected static double th=0.7;
 	protected static double cover=0.5;
 	protected static double[][] context;
+	protected static DefaultMutableTreeNode ROOT;
+	protected static boolean tree_change_flag;
 	protected static HashMap<Integer,String> clust_labels=new HashMap<Integer,String>();
 	protected static List<HashSet<String>> clusters=new ArrayList<HashSet<String>>();
 	protected static HashMap<Integer,HashSet<String>> cid_feature=new HashMap<Integer,HashSet<String>>();
@@ -64,6 +66,7 @@ public class Run {
 			if(root.getChildCount()==1){
 				root=(DefaultMutableTreeNode) root.getChildAt(0);
 				flag_change=true;
+				tree_change_flag=true;
 				continue;
 			}
 			HashSet<DefaultMutableTreeNode> nodes=new HashSet<DefaultMutableTreeNode>();
@@ -79,36 +82,47 @@ public class Run {
 		while(flag_change);
 		return root;
 	}
-	protected static DefaultMutableTreeNode whole_prun(DefaultMutableTreeNode root){
-		//----the clust with no direct leaf nodes should be replaced by its children----//
-		HashSet<TreeNode> nodes=new HashSet<TreeNode>();
-		Enumeration<TreeNode> enu=root.postorderEnumeration();
-		while(enu.hasMoreElements()){
-			TreeNode t=enu.nextElement();
-			if(t.isLeaf())
-				continue;
-			if(t.toString().equals(root.toString()))
-				continue;
-			if(has_leaf_child(t))
-			{
-				boolean flag=true;
-				TreeNode p=t.getParent();
-				while(p!=null){
-					if(has_leaf_child(p)){
-						flag=false;
-						break;
-					}
-					p=p.getParent();
-				}
-				if(flag){
-					nodes.add(t);
-				}
+
+	protected static HashSet<DefaultMutableTreeNode> whole_prun(DefaultMutableTreeNode root){
+		HashSet<DefaultMutableTreeNode> nodes=new HashSet<DefaultMutableTreeNode>();
+		if(root.isLeaf())
+			nodes.add(root);
+		else if(has_leaf_child(root)){
+			HashSet<HashSet<DefaultMutableTreeNode>> child_nodes=new HashSet<HashSet<DefaultMutableTreeNode>>();
+			Enumeration<TreeNode> children=root.children();
+			while(children.hasMoreElements()){
+				TreeNode child=children.nextElement();
+				child_nodes.add(whole_prun((DefaultMutableTreeNode) child));
+			}
+			root.removeAllChildren();
+			Iterator<HashSet<DefaultMutableTreeNode>> iter=child_nodes.iterator();
+			while(iter.hasNext()){
+				HashSet<DefaultMutableTreeNode> hs=iter.next();
+				for(DefaultMutableTreeNode n:hs)
+					root.add(n);
+			}
+			nodes.add(root);
+		}
+		else{
+			tree_change_flag=true;
+			Enumeration<TreeNode> children=root.children();
+			while(children.hasMoreElements()){
+				TreeNode child=children.nextElement();
+				nodes.addAll(whole_prun((DefaultMutableTreeNode) child));
 			}
 		}
+		return nodes;
+	}
+	protected static DefaultMutableTreeNode whole_prun(DefaultMutableTreeNode root,Integer INT){
+		//----the clust with no direct leaf nodes should be replaced by its children----//
+		HashSet<DefaultMutableTreeNode> nodes=new HashSet<DefaultMutableTreeNode>();
+		Enumeration<TreeNode> enu=root.children();
+		while(enu.hasMoreElements())
+			nodes.addAll(whole_prun((DefaultMutableTreeNode) enu.nextElement()));
 		root.removeAllChildren();
-		Iterator<TreeNode> iter=nodes.iterator();
+		Iterator<DefaultMutableTreeNode> iter=nodes.iterator();
 		while(iter.hasNext())
-			root.add((MutableTreeNode) iter.next());
+			root.add(iter.next());
 		return root;
 	}
 	protected static boolean has_leaf_child(TreeNode root){
@@ -141,8 +155,10 @@ public class Run {
 		for(int k=0;k<root.getChildCount();k++){
 			
 			DefaultMutableTreeNode child_node=(DefaultMutableTreeNode) root.getChildAt(k);
-			if(child_node.isLeaf()&&label_words.contains(child_node.toString()))
+			if(child_node.isLeaf()&&label_words.contains(child_node.toString())){
+				tree_change_flag=true;
 				continue;
+			}
 			nodes.add(move_label_from_leaf(child_node,label_words));
 		}
 		root.removeAllChildren();
@@ -165,8 +181,10 @@ public class Run {
 		HashSet<DefaultMutableTreeNode> nodes=new HashSet<DefaultMutableTreeNode>();
 		for(int k=0;k<root.getChildCount();k++){
 			DefaultMutableTreeNode child_node=(DefaultMutableTreeNode) root.getChildAt(k);
-			if(child_node.isLeaf()&&(!features.contains(child_node.toString())))
+			if(child_node.isLeaf()&&(!features.contains(child_node.toString()))){
+				tree_change_flag=true;
 				continue;
+			}
 			nodes.add(leaf_prun(child_node));
 		}
 		root.removeAllChildren();
@@ -175,7 +193,54 @@ public class Run {
 			root.add((MutableTreeNode) iter.next());
 		return root;
 	}
-	protected static DefaultMutableTreeNode ROOT;
+	protected static DefaultMutableTreeNode merge_child(DefaultMutableTreeNode root){
+		//----- if two brothers have the same name, then merge them to one -----//
+		if(root.isLeaf())
+			return root;
+		HashMap<String, DefaultMutableTreeNode> map=new HashMap<String,DefaultMutableTreeNode>();
+		Enumeration<TreeNode> children = root.children();
+		while(children.hasMoreElements()){
+			TreeNode child=children.nextElement();
+			if(!map.containsKey(child.toString()))
+				map.put(child.toString(), merge_child((DefaultMutableTreeNode) child));
+			else{
+				tree_change_flag=true;
+				DefaultMutableTreeNode brother=map.get(child.toString());
+				Enumeration<TreeNode> nephews=child.children();
+				while(nephews.hasMoreElements())
+					brother.add((MutableTreeNode) nephews.nextElement());
+				map.put(child.toString(), merge_child(brother));
+			}
+		}
+		root.removeAllChildren();
+		Iterator<DefaultMutableTreeNode> iter=map.values().iterator();
+		while(iter.hasNext())
+			root.add(iter.next());
+		return root;
+	}
+	protected static DefaultMutableTreeNode reshape_tree(DefaultMutableTreeNode root){
+		Enumeration<DefaultMutableTreeNode> level_two=root.children();
+		List<DefaultMutableTreeNode> new_level_two=new ArrayList<DefaultMutableTreeNode>();
+		while(level_two.hasMoreElements()){
+			DefaultMutableTreeNode node=level_two.nextElement();
+			Enumeration<DefaultMutableTreeNode> leaves=node.postorderEnumeration();
+			HashSet<String> new_leaves=new HashSet<String>();
+			while(leaves.hasMoreElements()){
+				String leaf=leaves.nextElement().toString();
+				if(leaf.equals(node.toString()))
+					continue;
+				new_leaves.add(leaf);
+			}
+			DefaultMutableTreeNode new_node=new DefaultMutableTreeNode(node.toString());
+			for(String s:new_leaves)
+				new_node.add(new DefaultMutableTreeNode(s));
+			new_level_two.add(new_node);
+		}
+		root.removeAllChildren();
+		for(DefaultMutableTreeNode node:new_level_two)
+			root.add(node);
+		return root;
+	}
 	public static void main(String[] args){
 //		//String method="direct";//"graph";"agglo";"rbr";"bagglo";"br";
 //		//Integer clust_num=3;
@@ -262,24 +327,34 @@ public class Run {
 //        catch(Exception e){
 //        	e.printStackTrace();
 //        }
-		String inpath=folder+"smartphone/processdata/";
+		String inpath=folder;//+"laptop/processdata_8000/";
 		bisection(inpath);
-		ROOT=tree_prun(ROOT);
-		ROOT=whole_prun(ROOT);
-		ROOT=move_label_from_leaf(ROOT);
-		ROOT=whole_prun(ROOT);
-		ROOT=leaf_prun(ROOT);
-        JFrame f = new JFrame("JTreeDemo");
-        JTree T=new JTree(ROOT);
-        f.add(T);
-        JScrollPane scrollPane_2 = new JScrollPane();
-        f.getContentPane().add(scrollPane_2, BorderLayout.CENTER);
-        f.setSize(900, 900);
-        scrollPane_2.setViewportView(T);
-        f.setVisible(true);
-
-        f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+//		do{
+//			tree_change_flag=false;
+//			ROOT=tree_prun(ROOT);
+//			ROOT=whole_prun(ROOT,1);
+//			ROOT=move_label_from_leaf(ROOT);
+//			ROOT=whole_prun(ROOT,1);
+//			ROOT=leaf_prun(ROOT);
+//			ROOT=merge_child(ROOT);
+//			ROOT=reshape_tree(ROOT);
+//		}
+//		while(tree_change_flag);
+		write_knowledge_base(inpath);
+		show_tree();
     }
+	public static void show_tree(){
+		 JFrame f = new JFrame("JTreeDemo");
+	        JTree T=new JTree(ROOT);
+	        f.add(T);
+	        JScrollPane scrollPane_2 = new JScrollPane();
+	        f.getContentPane().add(scrollPane_2, BorderLayout.CENTER);
+	        f.setSize(900, 900);
+	        scrollPane_2.setViewportView(T);
+	        f.setVisible(true);
+
+	        f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+	}
 	public static void bisection(String inpath){
 		try{
 			FileReader fr=new FileReader(inpath+"context_vecs.txt");
@@ -296,6 +371,7 @@ public class Run {
 					context[n][m]=Integer.parseInt(ss[m]);
 				n++;
 			}
+//			normalize();
 			br.close();
 			fr.close();
 		}
@@ -331,7 +407,7 @@ public class Run {
 	public static void bis_split(String inpath,List<String> features,DefaultMutableTreeNode root,String hyper){
 		if(compute_ISim(features)>=th||features.size()<2){
 			HashSet<String> feature_set=new HashSet<String>(features);
-			prun_clust(feature_set ,hyper);
+			//prun_clust(feature_set ,hyper);
 			if(feature_set.isEmpty())
 				root.removeFromParent();
 			if(feature_set.size()==1){
@@ -398,6 +474,26 @@ public class Run {
 				return m;
 		}
 		return -1;
+	}
+	public static void normalize(){
+		for(int k=0;k<feature_num;k++){
+			double  sum=0;
+			double max=0;
+			for(int i=0;i<dim;i++){
+
+				context[k][i]=Math.log(context[k][i]);
+//				context[k][i]=Math.sqrt(context[k][i]);
+				sum+=context[k][i];
+				if(max<context[k][i])
+					max=context[k][i];
+			}
+			for(int i=0;i<dim;i++){
+//				context[k][i]/=sum;
+//				context[k][i]=0.5+context[k][i]/max;
+//				context[k][i]=Math.log(context[k][i]);
+//				context[k][i]=Math.sqrt(context[k][i]);
+			}
+		}
 	}
 	public static void write_input_matrix(String inpath,List<String> features){
 		try{
@@ -684,6 +780,52 @@ public class Run {
 		return S;
 	}
 	
+	public static void write_knowledge_base(String inpath){
+		try{
+			FileWriter fw=new FileWriter(inpath+"aspect_tree.txt");
+			BufferedWriter bufw=new BufferedWriter(fw);
+			String s=weight_compute();
+			bufw.write(s);
+			bufw.close();
+			fw.close();
+		}
+		catch(Exception e){
+			e.printStackTrace();
+		}
+	}
+	public static String weight_compute(){
+		String s="";
+		s=s+ROOT.toString()+'\t'+"1.0\n";
+		Enumeration<DefaultMutableTreeNode> enu=ROOT.children();
+		double sum=0;
+		while(enu.hasMoreElements())
+			sum+=FEATURE.get(enu.nextElement().toString()).freq;
+		enu=ROOT.children();
+		while(enu.hasMoreElements()){
+			DefaultMutableTreeNode node=enu.nextElement();
+			s=s+node.toString()+'\t'+node.getParent().toString()+'\t'+((double)FEATURE.get(node.toString()).freq)/sum+'\n';
+		}
+		enu=ROOT.children();
+		while(enu.hasMoreElements())
+			s=s+weight_compute(enu.nextElement());
+		return s;
+	}
+	public static String weight_compute(DefaultMutableTreeNode root){
+		String s="";
+		Enumeration<DefaultMutableTreeNode> enu=root.children();
+		double sum=0;
+		while(enu.hasMoreElements())
+			sum+=FEATURE.get(enu.nextElement().toString()).freq;
+		enu=root.children();
+		while(enu.hasMoreElements()){
+			DefaultMutableTreeNode node=enu.nextElement();
+			s=s+node.toString()+'\t'+node.getParent().toString()+'\t'+((double)FEATURE.get(node.toString()).freq)/sum+'\n';
+		}
+		enu=root.children();
+		while(enu.hasMoreElements())
+			s=s+weight_compute(enu.nextElement());
+		return s;
+	}
  	public static void read_features(String inpath){
 		try{
 			FileReader fr=new FileReader(inpath+"Row_labels.txt");
