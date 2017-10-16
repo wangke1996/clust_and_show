@@ -327,6 +327,7 @@ public class Run {
 //        catch(Exception e){
 //        	e.printStackTrace();
 //        }
+		//----二分层次聚类----//
 		String inpath=folder;//+"laptop/processdata_8000/";
 		bisection(inpath);
 //		do{
@@ -356,14 +357,16 @@ public class Run {
 	        f.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 	}
 	public static void bisection(String inpath){
+		//----二分层次聚类----//
 		try{
+			//----读取语境向量----//
 			FileReader fr=new FileReader(inpath+"context_vecs.txt");
 			BufferedReader br=new BufferedReader(fr);
 			String s;
 			s=br.readLine();
 			feature_num=Integer.parseInt(s.split(" ")[0]);
 			dim=feature_num+1;
-			context=new double[feature_num][dim];
+			context=new double[feature_num][dim];//语境向量
 			int n=0;
 			while((s=br.readLine())!=null){
 				String[] ss=s.split(" ");
@@ -378,11 +381,12 @@ public class Run {
 		catch(Exception e){
 			e.printStackTrace();
 		}
-		read_features(inpath);
-		get_product_name(inpath);
+		read_features(inpath);//读取属性
+		get_product_name(inpath);//读取产品名称（作为属性树根结点）
 		ROOT=new DefaultMutableTreeNode(product_name);
-		bis_split(inpath,all_features,ROOT,product_name);
-		get_hypernym();
+		bis_split(inpath,all_features,ROOT,product_name);//二分聚类
+		get_hypernym();//抽取标签词（父节点名称）
+		//----输出结果----//
 		String result="";
 		Iterator<Entry<Integer,HashSet<String>>> iter=cid_feature.entrySet().iterator();
 		while(iter.hasNext()){
@@ -405,6 +409,7 @@ public class Run {
 		}
 	}
 	public static void bis_split(String inpath,List<String> features,DefaultMutableTreeNode root,String hyper){
+		//----以root为根结点，对features中的结点进行二分聚类----//
 		if(compute_ISim(features)>=th||features.size()<2){
 			HashSet<String> feature_set=new HashSet<String>(features);
 			//prun_clust(feature_set ,hyper);
